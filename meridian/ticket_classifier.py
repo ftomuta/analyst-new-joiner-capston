@@ -1,4 +1,5 @@
 import os
+import json   # ← ADDED: to parse the model's JSON output
 from google import genai
 from dotenv import load_dotenv
 from presidio_analyzer import AnalyzerEngine
@@ -15,23 +16,25 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 ticket_cache = {} 
 
 
-def classify_severity(text: str) -> str:
+def classify_severity(text: str) -> tuple[str, float]:
     """
     Classify the severity of a support ticket.
-    Returns: "low", "medium", or "high"
+    Returns: "low", "medium", or "high" along with a confidence score
     Raises: nothing — returns "low" for empty/None input
     """
     #edge cases
+    # ─── CHANGED: return type is now a tuple, so edge cases return one too ───
     if text == "":
         print("Error: Empty string, severity set to low.")
-        return "low"
+        return ("low", 1.0)
     elif text is None:
-        return "low"
+        return ("low", 1.0)
     else:
         #returns the severity for repeated tickets
         #moved above the PII step, key is `text` not `results` ───
+        # ─── CHANGED: pull both values back out of the cache ───
         if text in ticket_cache and "severity" in ticket_cache[text]:
-            return ticket_cache[text]["severity"]
+            return (ticket_cache[text]["severity"], ticket_cache[text]["confidence"])
 
         #filters out PII
         results = analyzer.analyze(
@@ -62,18 +65,40 @@ def classify_severity(text: str) -> str:
             Ticket:
             {clean}
 
-            Return only one word:
-            low
-            medium
-            or
-            high
-            """
+            Also give a confidence score between 0.0 and 1.0.
+
+            Confidence guidelines:
+            - 0.8 to 1.0: the ticket names a specific system, scope, or impact and only one label fits
+            - 0.6 to 0.8: the label is likely but some detail is missing
+            - below 0.6: the ticket is vague or two labels are equally defensible
+            """,
+            # ─── ADDED: forces valid JSON back instead of prose or markdown fences ───
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": {
+                    "type": "object",
+                    "properties": {
+                        "severity": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                        },
+                        "confidence": {"type": "number"},
+                    },
+                    "required": ["severity", "confidence"],
+                },
+            },
         )
-        label = response.text.strip().lower()
+        # ─── CHANGED: response is JSON now, so parse instead of strip/lower ───
+        data = json.loads(response.text)
+        label = data["severity"]
+        confidence = float(data["confidence"])
+        confidence = max(0.0, min(1.0, confidence))  # ← ADDED: schema doesn't bound the range
+
         if text not in ticket_cache:  #adds ticket severity to cache for repeatability
             ticket_cache[text] = {}  
         ticket_cache[text]["severity"] = label  
-        return label
+        ticket_cache[text]["confidence"] = confidence   # ← ADDED: cache the score too
+        return (label, confidence)
 
 
 #returns the category by prompting the llm with ticket
