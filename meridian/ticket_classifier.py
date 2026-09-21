@@ -30,7 +30,8 @@ def classify_severity(text: str) -> str:
     else:
         #returns the severity for repeated tickets
         #moved above the PII step, key is `text` not `results` ───
-        if text in ticket_cache and "severity" in ticket_cachereturn ticket_cache[text]["severity"]
+        if text in ticket_cache and "severity" in ticket_cache[text]:
+            return ticket_cache[text]["severity"]
 
         #filters out PII
         results = analyzer.analyze(

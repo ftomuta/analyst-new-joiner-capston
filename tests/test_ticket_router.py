@@ -1,5 +1,5 @@
 # Write your tests here before implementing
-from scaffold.meridian.ticket_router import route_ticket
+from meridian.ticket_router import route_ticket
  
  
 def test_route_ticket_high_severity():

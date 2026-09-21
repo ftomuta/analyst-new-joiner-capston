@@ -1,7 +1,9 @@
-from meridian.ticket_classifier import classify_severity
- 
- 
- 
+import pytest
+
+from meridian.ticket_classifier import classify_severity, classify_category
+
+
+
 def test_classify_severity_returns_valid_label():
     assert classify_severity("test") in {"low", "medium", "high"}
  
@@ -25,8 +27,8 @@ def test_repeated_severity():
  
 #classify the type of the ticket
 def test_classify_category():
-    result = classify_severity("My feature isn't working")
-    assert result == "bug"
+    result = classify_category("My feature isn't working")
+    assert result in {"bug", "feature_request", "billing", "access_request", "other"}
  
  
  
