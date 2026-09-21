@@ -7,4 +7,8 @@ def route_ticket(severity: str, category: str) -> str:
       - category "billing": "billing-team"
       - all others: "tier-1-support"
     """
-    raise NotImplementedError
+    if severity == "high":
+        return "tier-2-escalation"
+    if category == "billing":
+        return "billing-team"
+    return "tier-1-support"
