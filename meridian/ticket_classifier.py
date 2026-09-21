@@ -15,7 +15,7 @@ HIGH_PATTERN = _compile(
     r"fraud(?:ulent)?", r"unauthori[sz]ed", r"production", r"prod",
     r"critical", r"urgent", r"emergency", r"sev ?1", r"p1",
     r"unavailable", r"not responding", r"crash(?:es|ed|ing)?",
-    r"all users", r"everyone", r"http 5\d\d", r"5\d\d errors?",
+    r"all users", r"all customers", r"everyone", r"http 5\d\d", r"5\d\d errors?",
     r"cannot access", r"can't access", r"unable to access",
 )
 
@@ -26,6 +26,15 @@ MEDIUM_PATTERN = _compile(
     r"freez(?:e|es|ing)", r"intermittent", r"wrong", r"incorrect", r"missing",
     r"locked out", r"blocked",
 )
+
+# Confidence scoring: heuristic values, tune here.
+HIGH_BASE = 0.7  # one high signal; each extra distinct signal adds SIGNAL_STEP
+HIGH_CAP = 0.95
+MEDIUM_SINGLE_SIGNAL = 0.55  # one weak signal is treated as uncertain
+MEDIUM_MULTI_BASE = 0.7  # two medium signals; each extra adds SIGNAL_STEP
+MEDIUM_CAP = 0.9
+NO_SIGNAL_CONFIDENCE = 0.5
+SIGNAL_STEP = 0.1
 
 # Order matters: the first matching category wins.
 CATEGORY_PATTERNS = (
@@ -58,21 +67,42 @@ def _normalize(text) -> str:
     return text.strip()
 
 
-def classify_severity(text: str) -> str:
+def _distinct_matches(pattern: re.Pattern, text: str) -> int:
+    """Count distinct keywords found, so repeating one word adds no evidence."""
+    return len({match.lower() for match in pattern.findall(text)})
+
+
+def _confidence(base: float, signals: int, step: float, cap: float) -> float:
+    return round(min(cap, base + step * (signals - 1)), 2)
+
+
+def classify_severity(text: str) -> tuple[str, float]:
     """
     Classify the severity of a support ticket.
-    Returns: "low", "medium", or "high"
-    Raises: nothing — returns "low" for empty/None input
+    Returns: (label, confidence) where label is "low", "medium" or "high" and
+    confidence is a float in [0.0, 1.0] reflecting how much keyword evidence
+    supports the label. Confidence is 0.0 for empty/None input and 0.5 when
+    no keywords match at all (absence of evidence is not evidence of "low").
+    Raises: nothing — returns ("low", 0.0) for empty/None input
     """
     normalized = _normalize(text)
     if not normalized:
         print("Warning: empty or missing ticket text, defaulting to 'low'")
-        return "low"
-    if HIGH_PATTERN.search(normalized):
-        return "high"
-    if MEDIUM_PATTERN.search(normalized):
-        return "medium"
-    return "low"
+        return "low", 0.0
+
+    high_signals = _distinct_matches(HIGH_PATTERN, normalized)
+    if high_signals:
+        return "high", _confidence(HIGH_BASE, high_signals, SIGNAL_STEP, HIGH_CAP)
+
+    medium_signals = _distinct_matches(MEDIUM_PATTERN, normalized)
+    if medium_signals == 1:
+        return "medium", MEDIUM_SINGLE_SIGNAL
+    if medium_signals > 1:
+        return "medium", _confidence(
+            MEDIUM_MULTI_BASE, medium_signals - 1, SIGNAL_STEP, MEDIUM_CAP
+        )
+
+    return "low", NO_SIGNAL_CONFIDENCE
 
 
 def classify_category(text: str) -> str:

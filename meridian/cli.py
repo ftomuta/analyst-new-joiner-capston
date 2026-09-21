@@ -5,6 +5,10 @@ from meridian.ticket_router import route_ticket
 from meridian.ticket_store import TicketNotFoundError, get_ticket, save_ticket
 
 
+# Tickets classified below this confidence are flagged for a human, not auto-routed.
+REVIEW_THRESHOLD = 0.6
+
+
 class MeridianShell(cmd.Cmd):
     intro = "Meridian ticket triage. Type 'help' for commands, 'quit' to exit."
     prompt = "meridian> "
@@ -19,17 +23,31 @@ class MeridianShell(cmd.Cmd):
         if not text:
             self.stdout.write("Usage: create <ticket text>\n")
             return
-        severity = classify_severity(text)
+        severity, confidence = classify_severity(text)
         category = classify_category(text)
-        team = route_ticket(severity, category)
+        needs_review = confidence < REVIEW_THRESHOLD
+        team = None if needs_review else route_ticket(severity, category)
         ticket_id = save_ticket(
-            {"text": text, "severity": severity, "category": category, "team": team}
+            {
+                "text": text,
+                "severity": severity,
+                "confidence": confidence,
+                "category": category,
+                "team": team,
+                "needs_review": needs_review,
+            }
         )
         self.ticket_ids.append(ticket_id)
         self.stdout.write(
             f"Created ticket {ticket_id}\n"
-            f"  severity: {severity}\n  category: {category}\n  team: {team}\n"
+            f"  severity: {severity} (confidence: {confidence:.2f})\n"
+            f"  category: {category}\n"
+            f"  team: {team or 'unassigned'}\n"
         )
+        if needs_review:
+            self.stdout.write(
+                "  ! Low confidence: needs human review, not routed automatically.\n"
+            )
 
     def do_get(self, arg):
         """get <ticket id> - show a stored ticket."""
@@ -50,7 +68,7 @@ class MeridianShell(cmd.Cmd):
         for ticket_id in self.ticket_ids:
             t = get_ticket(ticket_id)
             self.stdout.write(
-                f"{ticket_id}  [{t['severity']}] {t['team']}  {t['text']}\n"
+                f"{ticket_id}  [{t['severity']}] {t['team'] or 'unassigned'}  {t['text']}\n"
             )
 
     def do_quit(self, arg):

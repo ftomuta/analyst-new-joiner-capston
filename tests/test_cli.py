@@ -22,7 +22,7 @@ def test_create_classifies_routes_and_stores_ticket():
 def test_create_then_get_returns_the_ticket():
     out = io.StringIO()
     shell = MeridianShell(stdout=out)
-    shell.onecmd("create I was charged twice on my invoice")
+    shell.onecmd("create Payment failed with an error on my invoice")
     ticket_id = shell.ticket_ids[0]
 
     shell.onecmd(f"get {ticket_id}")
@@ -59,3 +59,50 @@ def test_quit_ends_the_session():
     shell = MeridianShell(stdout=io.StringIO())
 
     assert shell.onecmd("quit") is True
+
+
+def test_create_shows_confidence():
+    assert "confidence: 0.80" in run("create Production database is down")
+
+
+def test_low_confidence_ticket_is_flagged_and_not_routed():
+    out = io.StringIO()
+    shell = MeridianShell(stdout=out)
+
+    shell.onecmd("create The report looks a bit off")
+
+    output = out.getvalue()
+    assert "needs human review" in output.lower()
+    assert "team: unassigned" in output
+    assert "tier-1-support" not in output
+
+
+def test_low_confidence_ticket_is_still_stored_with_review_flag():
+    out = io.StringIO()
+    shell = MeridianShell(stdout=out)
+    shell.onecmd("create The report looks a bit off")
+
+    ticket_id = shell.ticket_ids[0]
+    shell.onecmd(f"get {ticket_id}")
+
+    assert "needs_review: True" in out.getvalue()
+    assert "team: None" in out.getvalue()
+
+
+def test_confident_ticket_is_not_flagged():
+    output = run("create Production database is down")
+
+    assert "needs human review" not in output.lower()
+
+
+def test_list_marks_tickets_needing_review():
+    out = io.StringIO()
+    shell = MeridianShell(stdout=out)
+    shell.onecmd("create The report looks a bit off")
+    out.truncate(0)
+    out.seek(0)
+
+    shell.onecmd("list")
+
+    assert "unassigned" in out.getvalue()
+    assert "None" not in out.getvalue()
